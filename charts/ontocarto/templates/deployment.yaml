@@ -1,0 +1,186 @@
+{{- $fullName := include "library-chart.fullname" . -}}
+{{- $volumeName := printf "%s-%s" $fullName "data" | trunc 63 | trimSuffix "-" -}}
+{{ $shinyPort := "null" }}
+{{- if .Values.apache.enabled -}}
+{{- $shinyPort =  .Values.apache.port.shiny  -}}
+{{- else }}
+{{- $shinyPort =  .Values.networking.service.port -}}
+{{- end }}
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "library-chart.fullname" . }}
+  labels:
+    {{- include "library-chart.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "library-chart.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "library-chart.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      volumes:
+        - name: {{$volumeName}}
+          emptyDir: {}
+        {{- if .Values.volumes }}
+        {{- toYaml .Values.volumes | default "" | nindent 8 }}
+        {{- end }}
+        {{- if .Values.apache.enabled }}
+        - name: httpd-conf
+          configMap:
+            name: apache
+            items:
+              - key: httpd.conf
+                path: httpd.conf
+        {{- end }}   
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "library-chart.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.image.command }}
+          command: {{ .Values.image.command }}
+          {{- end }}
+          env:
+          {{- if or (.Values.postgresql.enabled.internal) (.Values.postgresql.enabled.external) }}
+          - name: POSTGRESQL_DB_NAME
+            value: {{ .Values.postgresql.auth.database }}
+          - name: POSTGRESQL_DB_HOST
+            value: {{ .Values.postgresql.fullnameOverride }}
+          - name: POSTGRESQL_DB_PORT
+            value: {{ .Values.postgresql.containerPorts.postgresql | quote }}
+          - name: POSTGRESQL_DB_USER
+            value: {{ .Values.postgresql.auth.username }}
+          - name: POSTGRESQL_DB_PASSWORD
+            {{- if .Values.postgresql.auth.existingSecret }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.postgresql.auth.existingSecret }}
+                key: password
+            {{- else }}
+            value: {{ .Values.postgresql.auth.password }}
+            {{- end }}
+          - name: POSTGRESQL_DB_ADMIN_PASSWORD
+            {{- if .Values.postgresql.auth.existingSecret }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.postgresql.auth.existingSecret }}
+                key: postgres-password
+            {{- else }}
+            value: {{ .Values.postgresql.auth.postgresPassword }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.env }}
+          {{- toYaml .Values.env | nindent 12 }}
+          {{- end }}
+          envFrom:
+            {{- if .Values.s3.enabled }}
+            {{- if .Values.s3.existingSecret }}
+            - secretRef:
+                name: {{ .Values.s3.existingSecret }}
+            {{- else }}
+            - configMapRef:
+                name: {{ include "library-chart.configMapNameS3" . }}
+            {{- end }}
+            {{- end }}
+          {{- if .Values.probes.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.networking.service.port }}
+            failureThreshold: {{ .Values.probes.livenessProbe.failureThreshold }}
+            periodSeconds: {{ .Values.probes.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.livenessProbe.timeoutSeconds }}
+          {{- end }}
+          {{- if .Values.probes.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.networking.service.port }}
+            initialDelaySeconds: {{ .Values.probes.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readinessProbe.timeoutSeconds }}
+          {{- end }}
+          {{- if .Values.probes.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.networking.service.port }}
+            failureThreshold: {{ .Values.probes.startupProbe.failureThreshold }}
+            periodSeconds: {{ .Values.probes.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.startupProbe.timeoutSeconds }}
+          {{- end }}
+          ports:
+            - name: shiny-http
+              containerPort: {{ $shinyPort }} 
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- toYaml .Values.volumeMounts | default "" | nindent 12 }}
+        {{- if .Values.apache.enabled }}
+        - name: apache
+          securityContext:
+            {{- toYaml .Values.apache.securityContext | nindent 12 }}
+          image: {{ .Values.apache.image }}
+          imagePullPolicy: {{ .Values.apache.pullPolicy }}
+          resources:
+            {{- toYaml .Values.apache.resources | nindent 12 }}
+          ports:
+            - name: apache-http
+              containerPort: {{ .Values.networking.service.port }} 
+          envFrom: 
+            - secretRef:
+                name : {{ .Values.apache.existingSecretOIDC.name }}            
+          volumeMounts:
+            {{- toYaml .Values.apache.volumeMounts | default "" | nindent 12 }}
+        {{- end }}      
+      {{- if .Values.postgresql.enabled.internal }}   
+      initContainers:
+        - name: wait-for-postgresql
+          image: "alpine"
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          command:
+            - sh
+            - -c
+            - |
+              until printf "." && nc -z -w 2 {{ .Values.postgresql.fullnameOverride }} {{ .Values.postgresql.containerPorts.postgresql }}; do
+                  sleep 2;
+              done;
+              echo 'PostgreSQL OK ✓'
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

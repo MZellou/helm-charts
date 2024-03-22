@@ -1,0 +1,156 @@
+# Default values for shiny.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: rocker/shiny
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "4.2.0"
+  pullPolicy: IfNotPresent
+  command: ""
+
+security:
+  networkPolicy:
+    enabled: false
+    from: []
+  allowlist:
+    enabled: true
+    ip: "0.0.0.0/0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  {}
+  # fsGroup: 2000
+
+securityContext:
+  {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+networking:
+  type: ClusterIP
+  service:
+    port: 3838
+  user:
+    enabled: false
+
+ingress:
+  enabled: true
+  tls: true
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  ingressClassName: ""
+  hostname: chart-example.local
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+probes:
+  livenessProbe:
+    enabled: true
+    failureThreshold: 1
+    periodSeconds: 10
+    timeoutSeconds: 5
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 5
+  startupProbe:
+    enabled: true
+    failureThreshold: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+
+s3:
+  enabled: false
+  existingSecret: ""
+  endpoint: ""
+  defaultRegion: ""
+  accessKeyId: ""
+  secretAccessKey: ""
+  sessionToken: ""
+
+postgresql:
+  enabled:
+    internal: false
+    external: false
+  auth:
+    username: ""
+    database: ""
+    password: ""
+    postgresPassword: ""
+    existingSecret: ""
+  containerPorts:
+    postgresql: 5432
+  fullnameOverride: ""
+  extensions:
+    postgis: false
+
+
+apache:
+  enabled: false
+  image: 
+  pullPolicy: "Always"
+  securityContext:
+    runAsNonRoot: false
+    runAsUser: 0
+    allowPrivilegeEscalation: false
+  resources:
+    limits:
+      memory: "128Mi"
+      cpu: "500m"
+    requests:
+      memory: "128Mi"
+      cpu: "100m"  
+  port:
+    shiny: 3838
+  volumeMounts:
+    - name: httpd-conf
+      mountPath: /usr/local/apache2/conf/httpd.conf
+      subPath: httpd.conf
+  confighost: 
+    OIDCProviderMetadataURL: 
+    OIDCRedirectURI: 
+    OIDCClientID: 
+    OIDCClientSecret: 
+    OIDCCryptoPassphrase: 
+    OIDCRemoteUserClaim: 
+  existingSecretOIDC:
+    name:   moncredentialsecret  
